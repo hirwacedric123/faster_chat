@@ -12,6 +12,8 @@ class EmbeddingsService:
     
     def __init__(self):
         self.openai_client = OpenAI(api_key=settings.OPENAI_API_KEY)
+        self.embedding_model = "text-embedding-3-large"  # Changed from ada-002 to 3-large
+        self.embedding_dimensions = 3072  # text-embedding-3-large has 3072 dimensions (vs 1536 for ada-002)
         
         # Initialize Pinecone with new API
         self.pinecone = pinecone.Pinecone(
@@ -31,10 +33,10 @@ class EmbeddingsService:
         indexes = [index.name for index in self.pinecone.list_indexes()]
         
         if self.index_name not in indexes:
-            # Create a new index with 1536 dimensions (OpenAI ada-002 embedding size)
+            # Create a new index with dimensions for text-embedding-3-large
             self.pinecone.create_index(
                 name=self.index_name,
-                dimension=1536,
+                dimension=self.embedding_dimensions,
                 metric="cosine"
             )
             # Wait for index to initialize
@@ -48,7 +50,7 @@ class EmbeddingsService:
         """Create an embedding vector for a text using OpenAI"""
         response = self.openai_client.embeddings.create(
             input=text,
-            model="text-embedding-ada-002"
+            model=self.embedding_model
         )
         return response.data[0].embedding
     
