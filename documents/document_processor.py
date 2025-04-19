@@ -112,10 +112,10 @@ class DocumentProcessor:
         
         # Use LangChain's text splitter
         text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=1000,          # Target chunk size
-            chunk_overlap=100,        # Overlap between chunks
+            chunk_size=1500,          # Increased from 1000 to 1500 for better context handling
+            chunk_overlap=150,        # Increased from 100 to 150 for better overlap
             length_function=len,      # Function to measure length
-            separators=["\n\n", "\n", " ", ""]  # Preferred split points
+            separators=["\n\n", "\n", ". ", " ", ""]  # Added period+space as a separator
         )
         
         return text_splitter.split_text(text)

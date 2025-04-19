@@ -9,7 +9,7 @@ class OpenAIService:
     def __init__(self):
         self.client = OpenAI(api_key=settings.OPENAI_API_KEY)
         self.embeddings_service = EmbeddingsService()
-        self.model = "gpt-3.5-turbo"
+        self.model = "gpt-4o"
     
     def generate_response(self, messages: List[Dict[str, str]], 
                           query: str = "", temperature: float = 0.7, 

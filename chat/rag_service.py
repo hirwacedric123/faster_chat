@@ -30,8 +30,8 @@ class RAGService:
         response = self.openai_service.generate_response(
             messages=messages,
             query=query if has_document_answer else "",  # Only pass query for context if we found relevant docs
-            temperature=0.7 if has_document_answer else 0.9,  # Lower temperature for document-based answers
-            max_tokens=500
+            temperature=0.5 if has_document_answer else 0.7,  # Lower temperature for document-based answers
+            max_tokens=800  # Increased from 500 to 800 for more comprehensive answers
         )
         
         return response, has_document_answer
@@ -48,7 +48,11 @@ class RAGService:
         if not any(msg.role == 'system' for msg in db_messages):
             openai_messages.append({
                 "role": "system",
-                "content": "You are a helpful AI assistant that provides accurate and concise information."
+                "content": (
+                    "You are a helpful AI assistant that provides accurate and concise information. "
+                    "When using information from documents, always cite your sources. "
+                    "Be helpful, harmless, and honest in your responses."
+                )
             })
         
         # Then add the rest of the messages
