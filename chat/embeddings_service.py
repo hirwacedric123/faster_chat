@@ -6,25 +6,73 @@ from openai import OpenAI
 from django.conf import settings
 from langchain.schema import Document as LangchainDocument
 from documents.models import DocumentChunk
+import dotenv
+from pathlib import Path
+
+# Load environment variables directly
+dotenv_path = Path(__file__).resolve().parent.parent / '.env'
+print(f"EmbeddingsService - Loading .env from: {dotenv_path} (exists: {dotenv_path.exists()})")
+dotenv.load_dotenv(dotenv_path)
 
 class EmbeddingsService:
     """Service for handling text embeddings using OpenAI and Pinecone"""
     
     def __init__(self):
-        # Get API keys from settings
-        self.openai_api_key = settings.OPENAI_API_KEY
-        self.pinecone_api_key = settings.PINECONE_API_KEY
-        self.pinecone_environment = settings.PINECONE_ENVIRONMENT
+        # Get API keys directly from environment with explicit logging
+        print("EmbeddingsService - Checking environment variables:")
+        print(f"OPENAI_API_KEY in os.environ: {'OPENAI_API_KEY' in os.environ}")
+        
+        # Try to get the API key with proper error handling
+        try:
+            self.openai_api_key = os.getenv("OPENAI_API_KEY")
+            print(f"API key retrieved from os.getenv: {bool(self.openai_api_key)}")
+            if self.openai_api_key and len(self.openai_api_key) > 20:
+                print(f"API key starts with: {self.openai_api_key[:20]}")
+            else:
+                print("API key is missing or too short")
+        except Exception as e:
+            print(f"Error accessing API key: {str(e)}")
+            self.openai_api_key = ""
+        
+        self.pinecone_api_key = os.getenv("PINECONE_API_KEY")
+        self.pinecone_environment = os.getenv("PINECONE_ENVIRONMENT")
         
         # Debug logging - will show in console during development
         print(f"Initializing EmbeddingsService with:")
-        print(f"Embedding model: text-embedding-3-large")
+        print(f"Embedding model: text-embedding-3-small")
         print(f"Pinecone environment: {self.pinecone_environment}")
         print(f"Pinecone API key present: {bool(self.pinecone_api_key)}")
         
-        self.openai_client = OpenAI(api_key=self.openai_api_key)
-        self.embedding_model = "text-embedding-3-large"  # Changed from ada-002 to 3-large
-        self.embedding_dimensions = 3072  # text-embedding-3-large has 3072 dimensions (vs 1536 for ada-002)
+        # Explicit API key validation
+        if not self.openai_api_key or not (self.openai_api_key.startswith('sk-') or self.openai_api_key.startswith('sk-proj-')):
+            print("Warning: Invalid OpenAI API key format in embeddings service")
+            raise ValueError("OpenAI API key must start with 'sk-' or 'sk-proj-'. Check your API key format.")
+        
+        # Force the client to use our explicit API key by temporarily removing environment variable
+        existing_key = os.environ.pop('OPENAI_API_KEY', None)
+        try:
+            # Initialize OpenAI client with explicit API key parameter
+            print(f"Creating OpenAI client with API key: {self.openai_api_key[:20]}...")
+            
+            # Different initialization based on key type
+            if self.openai_api_key.startswith('sk-proj-'):
+                # Special handling for project keys
+                self.openai_client = OpenAI(
+                    api_key=self.openai_api_key,
+                    base_url="https://api.openai.com/v1"  # Ensure we're using the correct API base
+                )
+            else:
+                # Standard initialization
+                self.openai_client = OpenAI(api_key=self.openai_api_key)
+                
+            print("OpenAI client created in EmbeddingsService")
+        finally:
+            # Restore environment variable if it existed
+            if existing_key:
+                os.environ['OPENAI_API_KEY'] = existing_key
+        
+        self.embedding_model = "text-embedding-3-small"  # Changed from 3-large to 3-small
+        self.embedding_dimensions = 1536  # text-embedding-3-small has 1536 dimensions
         
         # Initialize Pinecone with new API
         self.pinecone = pinecone.Pinecone(
@@ -40,18 +88,28 @@ class EmbeddingsService:
     
     def _ensure_index_exists(self) -> None:
         """Ensure the Pinecone index exists, create if it doesn't"""
-        # List indexes
-        indexes = [index.name for index in self.pinecone.list_indexes()]
-        
-        if self.index_name not in indexes:
-            # Create a new index with dimensions for text-embedding-3-large
-            self.pinecone.create_index(
-                name=self.index_name,
-                dimension=self.embedding_dimensions,
-                metric="cosine"
-            )
-            # Wait for index to initialize
-            time.sleep(1)
+        try:
+            # List indexes
+            indexes = [index.name for index in self.pinecone.list_indexes()]
+            
+            if self.index_name not in indexes:
+                # Create a new index with dimensions for text-embedding-3-large
+                # Updated to use the current Pinecone API which requires a 'spec' parameter
+                from pinecone import ServerlessSpec
+                
+                print(f"Creating new Pinecone index: {self.index_name} with {self.embedding_dimensions} dimensions")
+                self.pinecone.create_index(
+                    name=self.index_name,
+                    dimension=self.embedding_dimensions,
+                    metric="cosine",
+                    spec=ServerlessSpec(cloud="aws", region="us-east-1")
+                )
+                # Wait for index to initialize
+                time.sleep(5)  # Increased wait time for index initialization
+                print(f"Created index: {self.index_name}")
+        except Exception as e:
+            print(f"Error ensuring index exists: {str(e)}")
+            raise
     
     def get_index(self):
         """Get the Pinecone index"""

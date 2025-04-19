@@ -1,13 +1,66 @@
 from typing import List, Dict, Any, Optional
+import os
 from django.conf import settings
 from openai import OpenAI
 from .embeddings_service import EmbeddingsService
+import dotenv
+from pathlib import Path
+
+# Load environment variables directly
+dotenv_path = Path(__file__).resolve().parent.parent / '.env'
+print(f"Loading .env file from: {dotenv_path} (exists: {dotenv_path.exists()})")
+dotenv.load_dotenv(dotenv_path)
 
 class OpenAIService:
     """Service for interacting with OpenAI API"""
     
     def __init__(self):
-        self.client = OpenAI(api_key=settings.OPENAI_API_KEY)
+        # Check what's in environment variables
+        print("DEBUG - Environment variables:")
+        print(f"OPENAI_API_KEY in os.environ: {'OPENAI_API_KEY' in os.environ}")
+        print(f"OPENAI_API_KEY from os.getenv: {os.getenv('OPENAI_API_KEY')[:5] if os.getenv('OPENAI_API_KEY') else 'None'}")
+        
+        # Try to get API key in multiple ways
+        self.api_key = os.getenv("OPENAI_API_KEY")
+        
+        # Use fallback to Django settings if needed
+        if not self.api_key or not self.api_key.startswith('sk-'):
+            print("Warning: Invalid key from os.getenv, trying Django settings")
+            self.api_key = settings.OPENAI_API_KEY
+        
+        # Debug logging
+        print(f"OpenAIService - Final API key format: {self.api_key[:20]}... (length: {len(self.api_key) if self.api_key else 0})")
+        
+        # Validate API key format - allow both sk- and sk-proj- formats
+        if not self.api_key or not (self.api_key.startswith('sk-') or self.api_key.startswith('sk-proj-')):
+            raise ValueError("OpenAI API key must start with 'sk-' or 'sk-proj-'. Check your API key format.")
+        
+        # Force the client to use our explicit API key by temporarily removing environment variable
+        existing_key = os.environ.pop('OPENAI_API_KEY', None)
+        try:    
+            # Create client with explicit API key
+            print(f"Creating OpenAI client with API key starting with: {self.api_key[:20]}...")
+            
+            # Different initialization based on key type
+            if self.api_key.startswith('sk-proj-'):
+                # Special handling for project keys
+                self.client = OpenAI(
+                    api_key=self.api_key,
+                    base_url="https://api.openai.com/v1"  # Ensure we're using the correct API base
+                )
+            else:
+                # Standard initialization
+                self.client = OpenAI(api_key=self.api_key)
+                
+            print("OpenAI client created.")
+        finally:
+            # Restore environment variable if it existed
+            if existing_key:
+                os.environ['OPENAI_API_KEY'] = existing_key
+        
+        # Print client base URL to verify configuration
+        print(f"OpenAI client base URL: {self.client.base_url}")
+        
         self.embeddings_service = EmbeddingsService()
         self.model = "gpt-4o"
     

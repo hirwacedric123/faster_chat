@@ -13,6 +13,10 @@ https://docs.djangoproject.com/en/5.1/ref/settings/
 from pathlib import Path
 import os
 import environ
+import dotenv
+
+# Initialize dotenv
+dotenv.load_dotenv()
 
 # Initialize environment variables
 env = environ.Env()
@@ -143,7 +147,7 @@ MEDIA_ROOT = env("MEDIA_ROOT", default=os.path.join(BASE_DIR, "media"))
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-# API Keys
-OPENAI_API_KEY = env("OPENAI_API_KEY", default="")
-PINECONE_API_KEY = env("PINECONE_API_KEY", default="")
-PINECONE_ENVIRONMENT = env("PINECONE_ENVIRONMENT", default="")
+# API Keys - Get directly from os.environ
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+PINECONE_API_KEY = os.getenv("PINECONE_API_KEY", "")
+PINECONE_ENVIRONMENT = os.getenv("PINECONE_ENVIRONMENT", "")
