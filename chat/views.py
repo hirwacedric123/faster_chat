@@ -14,6 +14,7 @@ def chat_home(request):
     """Home page for the chat interface"""
     # Check if this is a new conversation request
     new_conversation = request.GET.get('new', '0') == '1'
+    conversation_id_from_url = request.GET.get('conversation_id')
     
     conversations = Conversation.objects.all().order_by('-created_at')
     
@@ -25,6 +26,13 @@ def chat_home(request):
         # Always create a new conversation if requested
         active_conversation = Conversation.objects.create(title="New Conversation")
         request.session['active_conversation_id'] = active_conversation.id
+    elif conversation_id_from_url:
+        # Use the conversation ID from the URL if provided
+        try:
+            active_conversation = Conversation.objects.get(id=conversation_id_from_url)
+            request.session['active_conversation_id'] = active_conversation.id
+        except Conversation.DoesNotExist:
+            pass
     elif active_conversation_id:
         try:
             active_conversation = Conversation.objects.get(id=active_conversation_id)
