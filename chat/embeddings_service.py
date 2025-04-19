@@ -11,14 +11,25 @@ class EmbeddingsService:
     """Service for handling text embeddings using OpenAI and Pinecone"""
     
     def __init__(self):
-        self.openai_client = OpenAI(api_key=settings.OPENAI_API_KEY)
+        # Get API keys from settings
+        self.openai_api_key = settings.OPENAI_API_KEY
+        self.pinecone_api_key = settings.PINECONE_API_KEY
+        self.pinecone_environment = settings.PINECONE_ENVIRONMENT
+        
+        # Debug logging - will show in console during development
+        print(f"Initializing EmbeddingsService with:")
+        print(f"Embedding model: text-embedding-3-large")
+        print(f"Pinecone environment: {self.pinecone_environment}")
+        print(f"Pinecone API key present: {bool(self.pinecone_api_key)}")
+        
+        self.openai_client = OpenAI(api_key=self.openai_api_key)
         self.embedding_model = "text-embedding-3-large"  # Changed from ada-002 to 3-large
         self.embedding_dimensions = 3072  # text-embedding-3-large has 3072 dimensions (vs 1536 for ada-002)
         
         # Initialize Pinecone with new API
         self.pinecone = pinecone.Pinecone(
-            api_key=settings.PINECONE_API_KEY,
-            environment=settings.PINECONE_ENVIRONMENT
+            api_key=self.pinecone_api_key,
+            environment=self.pinecone_environment
         )
         
         # Index name for document chunks
