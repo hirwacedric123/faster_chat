@@ -19,12 +19,14 @@ from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
+from django.views.generic import RedirectView
 
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("chat/", include("chat.urls")),
     path("documents/", include("documents.urls")),
-    path("", include("chat.urls")),  # Make chat the default homepage
+    # Make chat the default homepage, but with a redirect instead of another include
+    path("", RedirectView.as_view(pattern_name='chat_app:home'), name='home'),
 ]
 
 # Serve media files in development
