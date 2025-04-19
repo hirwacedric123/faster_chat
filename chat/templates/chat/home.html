@@ -29,6 +29,28 @@
                 {% endfor %}
             </div>
         </div>
+
+        <!-- Document stats card -->
+        <div class="card">
+            <div class="card-header bg-white">
+                <h5 class="mb-0">Knowledge Base</h5>
+            </div>
+            <div class="card-body">
+                <div class="d-flex justify-content-between mb-2">
+                    <span>Documents:</span>
+                    <span class="badge bg-primary">{{ document_count }}</span>
+                </div>
+                <div class="d-flex justify-content-between">
+                    <span>Chunks:</span>
+                    <span class="badge bg-info">{{ chunk_count }}</span>
+                </div>
+                <div class="mt-3">
+                    <a href="{% url 'documents:home' %}" class="btn btn-sm btn-outline-primary w-100">
+                        <i class="fas fa-file-upload me-1"></i> Manage Documents
+                    </a>
+                </div>
+            </div>
+        </div>
     </div>
     
     <!-- Main chat area -->
@@ -116,6 +138,16 @@
         resize: none;
         overflow: hidden;
     }
+    
+    .document-source-badge {
+        background-color: rgba(0, 123, 255, 0.1);
+        color: #007bff;
+        padding: 0.1rem 0.5rem;
+        border-radius: 0.5rem;
+        font-size: 0.8rem;
+        margin-top: 0.5rem;
+        display: inline-block;
+    }
 </style>
 {% endblock %}
 
@@ -199,6 +231,10 @@
                     // Remove loading indicator
                     $('#loading-message').remove();
                     
+                    // Add document badge if documents were used
+                    const documentBadge = response.used_documents ? 
+                        '<div class="document-source-badge"><i class="fas fa-book me-1"></i> Using knowledge from your documents</div>' : '';
+                    
                     // Add assistant message to chat
                     const assistantMessageHtml = `
                         <div class="message message-assistant mb-3">
@@ -208,6 +244,7 @@
                             </div>
                             <div class="message-content p-3 bg-light rounded">
                                 ${response.response.replace(/\n/g, '<br>')}
+                                ${documentBadge}
                             </div>
                         </div>
                     `;
@@ -242,6 +279,13 @@
         // Create new conversation
         $('#new-conversation').on('click', function() {
             window.location.href = '{% url "chat:home" %}?new=1';
+        });
+        
+        // Click on conversation in sidebar
+        $('.conversation-list a').on('click', function(e) {
+            e.preventDefault();
+            const conversationId = $(this).data('conversation-id');
+            window.location.href = `{% url "chat:home" %}?conversation_id=${conversationId}`;
         });
     });
 </script>
