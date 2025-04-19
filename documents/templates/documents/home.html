@@ -1,0 +1,133 @@
+{% extends 'base.html' %}
+
+{% block title %}Documents - Faster Chat{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-body">
+                <h4 class="card-title mb-4">Upload Documents</h4>
+                <p class="text-muted">Upload your documents to help the AI provide more accurate responses based on your content.</p>
+                
+                <form method="post" action="{% url 'documents:upload' %}" enctype="multipart/form-data">
+                    {% csrf_token %}
+                    
+                    <div class="mb-3">
+                        <label for="{{ form.title.id_for_label }}" class="form-label">Document Title</label>
+                        {{ form.title|add_class:"form-control" }}
+                        {% if form.title.errors %}
+                            <div class="text-danger mt-1">
+                                {{ form.title.errors }}
+                            </div>
+                        {% endif %}
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="{{ form.description.id_for_label }}" class="form-label">Description (Optional)</label>
+                        {{ form.description|add_class:"form-control" }}
+                        {% if form.description.errors %}
+                            <div class="text-danger mt-1">
+                                {{ form.description.errors }}
+                            </div>
+                        {% endif %}
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="{{ form.file.id_for_label }}" class="form-label">File</label>
+                        {{ form.file|add_class:"form-control" }}
+                        {% if form.file.errors %}
+                            <div class="text-danger mt-1">
+                                {{ form.file.errors }}
+                            </div>
+                        {% endif %}
+                        <div class="form-text">
+                            Supported file types: PDF, DOC, DOCX, TXT, MD (Max 10MB)
+                        </div>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-upload me-2"></i> Upload Document
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                <h4 class="mb-0">Your Documents</h4>
+                <a href="{% url 'documents:list' %}" class="btn btn-sm btn-outline-primary">
+                    <i class="fas fa-list me-1"></i> View All
+                </a>
+            </div>
+            
+            <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                    <thead>
+                        <tr>
+                            <th>Title</th>
+                            <th>Type</th>
+                            <th>Status</th>
+                            <th>Uploaded</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for document in documents|slice:":5" %}
+                        <tr>
+                            <td>
+                                <strong>{{ document.title }}</strong>
+                                {% if document.description %}
+                                <div class="text-muted small">{{ document.description|truncatechars:50 }}</div>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if document.file_type == 'pdf' %}
+                                <span class="badge bg-danger">PDF</span>
+                                {% elif document.file_type == 'word' %}
+                                <span class="badge bg-primary">Word</span>
+                                {% elif document.file_type == 'text' %}
+                                <span class="badge bg-secondary">Text</span>
+                                {% else %}
+                                <span class="badge bg-info">{{ document.file_type }}</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if document.status == 'pending' %}
+                                <span class="badge bg-warning">Pending</span>
+                                {% elif document.status == 'processing' %}
+                                <span class="badge bg-info">Processing</span>
+                                {% elif document.status == 'completed' %}
+                                <span class="badge bg-success">Completed</span>
+                                {% elif document.status == 'failed' %}
+                                <span class="badge bg-danger">Failed</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ document.uploaded_at|date:"M d, Y" }}</td>
+                            <td>
+                                <a href="{{ document.file.url }}" class="btn btn-sm btn-outline-secondary" target="_blank">
+                                    <i class="fas fa-download"></i>
+                                </a>
+                                <a href="{% url 'documents:delete' document.id %}" class="btn btn-sm btn-outline-danger">
+                                    <i class="fas fa-trash"></i>
+                                </a>
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="5" class="text-center py-4">
+                                <p class="text-muted mb-0">No documents uploaded yet</p>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %} 
