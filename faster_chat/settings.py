@@ -11,6 +11,12 @@ https://docs.djangoproject.com/en/5.1/ref/settings/
 """
 
 from pathlib import Path
+import os
+import environ
+
+# Initialize environment variables
+env = environ.Env()
+environ.Env.read_env()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -20,10 +26,10 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.1/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = "django-insecure-q6(@6c1!wcnr_x&@4u&v(jy)f#-7j4(kn*by6!lrnw&4^_ab(h"
+SECRET_KEY = env("SECRET_KEY", default="django-insecure-q6(@6c1!wcnr_x&@4u&v(jy)f#-7j4(kn*by6!lrnw&4^_ab(h")
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = env.bool("DEBUG", default=True)
 
 ALLOWED_HOSTS = []
 
@@ -37,6 +43,9 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    # Custom apps
+    "chat",
+    "documents",
 ]
 
 MIDDLEWARE = [
@@ -116,8 +125,18 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.1/howto/static-files/
 
 STATIC_URL = "static/"
+STATIC_ROOT = env("STATIC_ROOT", default=os.path.join(BASE_DIR, "static"))
+
+# Media files (Uploaded documents)
+MEDIA_URL = "/media/"
+MEDIA_ROOT = env("MEDIA_ROOT", default=os.path.join(BASE_DIR, "media"))
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.1/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# API Keys
+OPENAI_API_KEY = env("OPENAI_API_KEY", default="")
+PINECONE_API_KEY = env("PINECONE_API_KEY", default="")
+PINECONE_ENVIRONMENT = env("PINECONE_ENVIRONMENT", default="")
