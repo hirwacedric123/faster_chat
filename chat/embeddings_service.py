@@ -6,41 +6,58 @@ from openai import OpenAI
 from django.conf import settings
 from langchain.schema import Document as LangchainDocument
 from documents.models import DocumentChunk
-import dotenv
 from pathlib import Path
+from .env_utils import load_environment
+import json
+import numpy as np
+import pandas as pd
 
-# No need to load .env here since openai_service.py already does it
-# Just print debug info
-print(f"EmbeddingsService - Using OPENAI_API_KEY from environment: {os.environ.get('OPENAI_API_KEY')[:20]}...")
+# Global cached clients
+_openai_client = None
+_pinecone_client = None
+_pinecone_index = None
+_vector_store = None
+_documents = None
+_embedding_cache = {}
 
 class EmbeddingsService:
     """Service for handling text embeddings using OpenAI and Pinecone"""
     
     def __init__(self):
-        # Get API keys directly from environment
-        self.openai_api_key = os.environ.get("OPENAI_API_KEY")
-        self.pinecone_api_key = os.environ.get("PINECONE_API_KEY")
-        self.pinecone_environment = os.environ.get("PINECONE_ENVIRONMENT")
+        global _openai_client, _vector_store, _documents
         
-        # Debug logging - will show in console during development
-        print(f"Initializing EmbeddingsService with:")
-        print(f"Embedding model: text-embedding-3-small")
-        print(f"Pinecone environment: {self.pinecone_environment}")
-        print(f"Pinecone API key present: {bool(self.pinecone_api_key)}")
-        print(f"OpenAI API key: {self.openai_api_key[:20]}...")
+        # Get API keys from environment utils
+        self.api_key, self.embeddings_file, self.documents_file = load_environment()
         
-        # Initialize OpenAI client with explicit API key parameter
-        self.openai_client = OpenAI(api_key=self.openai_api_key)
-        print("OpenAI client created in EmbeddingsService")
+        # Create client with explicit API key if not already created
+        if _openai_client is None:
+            _openai_client = OpenAI(api_key=self.api_key)
         
-        self.embedding_model = "text-embedding-3-small"  # Changed from 3-large to 3-small
-        self.embedding_dimensions = 1536  # text-embedding-3-small has 1536 dimensions
+        self.client = _openai_client
+        
+        # Load vector store if not already loaded
+        if _vector_store is None:
+            self._load_vector_store()
+        else:
+            self.vector_store = _vector_store
+        
+        # Load documents if not already loaded
+        if _documents is None:
+            self._load_documents()
+        else:
+            self.documents = _documents
+        
+        # Get API keys from environment utils
+        self.pinecone_api_key, self.pinecone_environment = load_environment()
         
         # Initialize Pinecone with new API
-        self.pinecone = pinecone.Pinecone(
-            api_key=self.pinecone_api_key,
-            environment=self.pinecone_environment
-        )
+        global _pinecone_client
+        if _pinecone_client is None:
+            _pinecone_client = pinecone.Pinecone(
+                api_key=self.pinecone_api_key,
+                environment=self.pinecone_environment
+            )
+        self.pinecone = _pinecone_client
         
         # Index name for document chunks
         self.index_name = "faster-chat-docs"
@@ -59,7 +76,7 @@ class EmbeddingsService:
                 # Updated to use the current Pinecone API which requires a 'spec' parameter
                 from pinecone import ServerlessSpec
                 
-                print(f"Creating new Pinecone index: {self.index_name} with {self.embedding_dimensions} dimensions")
+                print(f"Creating new Pinecone index: {self.index_name}")
                 self.pinecone.create_index(
                     name=self.index_name,
                     dimension=self.embedding_dimensions,
@@ -67,22 +84,121 @@ class EmbeddingsService:
                     spec=ServerlessSpec(cloud="aws", region="us-east-1")
                 )
                 # Wait for index to initialize
-                time.sleep(5)  # Increased wait time for index initialization
-                print(f"Created index: {self.index_name}")
+                time.sleep(5)
         except Exception as e:
             print(f"Error ensuring index exists: {str(e)}")
             raise
     
     def get_index(self):
         """Get the Pinecone index"""
-        return self.pinecone.Index(self.index_name)
+        global _pinecone_index
+        if _pinecone_index is None:
+            _pinecone_index = self.pinecone.Index(self.index_name)
+        return _pinecone_index
+    
+    def _load_vector_store(self):
+        """Load the vector store from disk"""
+        try:
+            start_time = time.time()
+            
+            # Load the embeddings file
+            embeddings_path = Path(self.embeddings_file)
+            if not embeddings_path.exists():
+                print(f"Embeddings file {embeddings_path} does not exist")
+                global _vector_store
+                _vector_store = {}
+                self.vector_store = {}
+                return
+                
+            # Load the embeddings as a numpy array
+            with open(embeddings_path, 'r') as f:
+                data = json.load(f)
+                
+            # Convert to numpy array for faster similarity calculations
+            _vector_store = {
+                chunk_id: np.array(embedding) for chunk_id, embedding in data.items()
+            }
+            self.vector_store = _vector_store
+            
+            load_time = time.time() - start_time
+            if load_time > 0.5:  # Only log if slow
+                print(f"Vector store loaded in {load_time:.2f}s ({len(self.vector_store)} chunks)")
+                
+        except Exception as e:
+            print(f"Error loading vector store: {str(e)}")
+            _vector_store = {}
+            self.vector_store = {}
+    
+    def _load_documents(self):
+        """Load the documents from disk"""
+        try:
+            start_time = time.time()
+            
+            # Load the documents file
+            documents_path = Path(self.documents_file)
+            if not documents_path.exists():
+                print(f"Documents file {documents_path} does not exist")
+                global _documents
+                _documents = {}
+                self.documents = {}
+                return
+                
+            # Load the documents
+            with open(documents_path, 'r') as f:
+                _documents = json.load(f)
+            
+            self.documents = _documents
+            
+            load_time = time.time() - start_time
+            if load_time > 0.5:  # Only log if slow
+                print(f"Documents loaded in {load_time:.2f}s ({len(self.documents)} chunks)")
+                
+        except Exception as e:
+            print(f"Error loading documents: {str(e)}")
+            _documents = {}
+            self.documents = {}
+    
+    def _get_embedding(self, text: str) -> np.ndarray:
+        """Get an embedding for a text"""
+        global _embedding_cache
+        
+        # Check if embedding is in cache
+        if text in _embedding_cache:
+            return _embedding_cache[text]
+        
+        try:
+            # Get embedding from OpenAI
+            response = self.client.embeddings.create(
+                input=text,
+                model="text-embedding-ada-002"
+            )
+            
+            # Convert to numpy array
+            embedding = np.array(response.data[0].embedding)
+            
+            # Cache the embedding (limit cache size to avoid memory issues)
+            if len(_embedding_cache) > 1000:
+                # Remove a random key if cache is too large
+                _embedding_cache.pop(next(iter(_embedding_cache)))
+            _embedding_cache[text] = embedding
+            
+            return embedding
+            
+        except Exception as e:
+            print(f"Error getting embedding: {str(e)}")
+            # Return a zero vector as fallback
+            return np.zeros(1536)
     
     def create_embedding(self, text: str) -> List[float]:
         """Create an embedding vector for a text using OpenAI"""
-        response = self.openai_client.embeddings.create(
+        start_time = time.time()
+        response = self.client.embeddings.create(
             input=text,
-            model=self.embedding_model
+            model="text-embedding-3-small"
         )
+        embedding_time = time.time() - start_time
+        if embedding_time > 0.5:  # Only log if slow
+            print(f"Embedding creation took {embedding_time:.2f}s")
         return response.data[0].embedding
     
     def store_document_chunk(self, chunk: DocumentChunk) -> str:
@@ -116,31 +232,22 @@ class EmbeddingsService:
     
     def similarity_search(self, query: str, top_k: int = 3) -> List[Tuple[DocumentChunk, float]]:
         """Search for similar document chunks based on query"""
-        import time
-        import datetime
-        
-        search_start = time.time()
-        print(f"⚡ [{datetime.datetime.now().strftime('%H:%M:%S.%f')[:-3]}] - Starting similarity search for query")
-        
         # Create embedding for the query
-        embed_start = time.time()
-        query_embedding = self.create_embedding(query)
-        embed_time = time.time() - embed_start
-        print(f"⚡ [{datetime.datetime.now().strftime('%H:%M:%S.%f')[:-3]}] - Created embedding in {embed_time:.2f}s")
+        query_embedding = self._get_embedding(query)
         
         # Search in Pinecone
-        pinecone_start = time.time()
+        start_time = time.time()
         index = self.get_index()
         results = index.query(
             vector=query_embedding,
             top_k=top_k,
             include_metadata=True
         )
-        pinecone_time = time.time() - pinecone_start
-        print(f"⚡ [{datetime.datetime.now().strftime('%H:%M:%S.%f')[:-3]}] - Pinecone query completed in {pinecone_time:.2f}s, returned {len(results.matches)} matches")
+        pinecone_time = time.time() - start_time
+        if pinecone_time > 1.0:  # Only log if slow
+            print(f"Pinecone query took {pinecone_time:.2f}s")
         
         # Get document chunks
-        db_start = time.time()
         chunks_with_scores = []
         for match in results.matches:
             try:
@@ -155,11 +262,6 @@ class EmbeddingsService:
                 chunks_with_scores.append((chunk, match.score))
             except (DocumentChunk.DoesNotExist, KeyError, ValueError) as e:
                 continue
-        db_time = time.time() - db_start
-        
-        search_time = time.time() - search_start
-        print(f"⚡ [{datetime.datetime.now().strftime('%H:%M:%S.%f')[:-3]}] - Similarity search completed in {search_time:.2f}s - Embedding: {embed_time:.2f}s, Pinecone: {pinecone_time:.2f}s, DB: {db_time:.2f}s")
-        print(f"⚡ Retrieved {len(chunks_with_scores)} chunks with scores")
         
         return chunks_with_scores
     
@@ -176,36 +278,48 @@ class EmbeddingsService:
             index = self.get_index()
             index.delete(ids=embedding_ids)
     
-    def get_relevant_context(self, query: str, max_chunks: int = 3) -> str:
-        """Get the most relevant context from documents for a query"""
-        import time
-        import datetime
-        
-        context_start = time.time()
-        print(f"⚡ [{datetime.datetime.now().strftime('%H:%M:%S.%f')[:-3]}] - Getting relevant context for: '{query[:50]}{'...' if len(query) > 50 else ''}'")
-        
-        # Get similar chunks
-        chunks_with_scores = self.similarity_search(query, top_k=max_chunks)
-        
-        if not chunks_with_scores:
-            print(f"⚡ [{datetime.datetime.now().strftime('%H:%M:%S.%f')[:-3]}] - No relevant chunks found")
+    def get_relevant_context(self, query: str, max_chunks: int = 3, similarity_threshold: float = 0.7) -> str:
+        """
+        Get context relevant to a query from documents
+        """
+        if not self.vector_store or not self.documents:
             return ""
         
-        # Sort by score (highest first) and extract content
-        chunks_with_scores.sort(key=lambda x: x[1], reverse=True)
-        
-        # Build context with document references
-        format_start = time.time()
-        context_parts = []
-        for chunk, score in chunks_with_scores:
-            document_title = chunk.document.title
-            context_parts.append(f"--- From document: {document_title} ---\n{chunk.content}\n")
-        
-        context = "\n".join(context_parts)
-        format_time = time.time() - format_start
-        
-        total_time = time.time() - context_start
-        print(f"⚡ [{datetime.datetime.now().strftime('%H:%M:%S.%f')[:-3]}] - Context retrieval completed in {total_time:.2f}s - Formatting: {format_time:.2f}s")
-        print(f"⚡ Retrieved context length: {len(context)} characters from {len(chunks_with_scores)} chunks")
-        
-        return context 
+        try:
+            start_time = time.time()
+            
+            # Get query embedding
+            query_embedding = self._get_embedding(query)
+            
+            # Calculate similarity with all chunks
+            similarities = {}
+            for chunk_id, chunk_embedding in self.vector_store.items():
+                # Calculate cosine similarity (dot product of normalized vectors)
+                similarity = np.dot(query_embedding, chunk_embedding) / (
+                    np.linalg.norm(query_embedding) * np.linalg.norm(chunk_embedding)
+                )
+                similarities[chunk_id] = similarity
+            
+            # Sort by similarity and get top chunks
+            top_chunks = sorted(similarities.items(), key=lambda x: x[1], reverse=True)[:max_chunks]
+            
+            # Filter by similarity threshold
+            top_chunks = [(chunk_id, sim) for chunk_id, sim in top_chunks if sim >= similarity_threshold]
+            
+            # Format context
+            context = ""
+            for chunk_id, similarity in top_chunks:
+                if chunk_id in self.documents:
+                    doc = self.documents[chunk_id]
+                    context += f"Document: {doc.get('source', 'Unknown')}\n"
+                    context += f"Content: {doc.get('content', '')}\n\n"
+            
+            search_time = time.time() - start_time
+            if search_time > 0.5 and context:  # Only log if slow and context was found
+                print(f"Found {len(top_chunks)} relevant chunks in {search_time:.2f}s")
+            
+            return context
+            
+        except Exception as e:
+            print(f"Error getting relevant context: {str(e)}")
+            return "" 

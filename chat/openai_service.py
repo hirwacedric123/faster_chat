@@ -1,55 +1,35 @@
 from typing import List, Dict, Any, Optional
 import os
+import time
 from django.conf import settings
 from openai import OpenAI
-from .embeddings_service import EmbeddingsService
-import dotenv
 from pathlib import Path
+from .env_utils import load_environment
 
-# Load environment variables directly
-dotenv_path = Path(__file__).resolve().parent.parent.parent / '.env'
-print(f"Loading .env file from: {dotenv_path} (exists: {dotenv_path.exists()})")
-dotenv.load_dotenv(dotenv_path, override=True)  # Force override existing env vars
-
-# Print the system OpenAI API key for debugging
-system_api_key = os.environ.get('OPENAI_API_KEY', 'Not set')
-print(f"System OPENAI_API_KEY: {system_api_key[:20]}... (length: {len(system_api_key) if system_api_key else 0})")
-
-# Now reload from .env and override the system variable
-if dotenv_path.exists():
-    # Load the .env file content directly
-    with open(dotenv_path, 'r') as f:
-        for line in f:
-            if line.strip() and not line.startswith('#'):
-                key, value = line.strip().split('=', 1)
-                if key == 'OPENAI_API_KEY':
-                    print(f"Explicitly setting OPENAI_API_KEY from .env file to: {value[:20]}...")
-                    os.environ['OPENAI_API_KEY'] = value
+# Global cached client
+_openai_client = None
+_embeddings_service = None
 
 class OpenAIService:
     """Service for interacting with OpenAI API"""
     
     def __init__(self):
-        # Check what's in environment variables after our override
-        print("DEBUG - Environment variables after override:")
-        print(f"OPENAI_API_KEY in os.environ: {'OPENAI_API_KEY' in os.environ}")
-        print(f"OPENAI_API_KEY from os.environ: {os.environ.get('OPENAI_API_KEY')[:20]}...")
-        
-        # Get API key directly from .env file
-        self.api_key = os.environ.get("OPENAI_API_KEY")
-        
-        # Debug logging
-        print(f"OpenAIService - Final API key format: {self.api_key[:20]}... (length: {len(self.api_key) if self.api_key else 0})")
+        # Get API keys from environment utils
+        self.api_key, _, _ = load_environment()
         
         # Create client with explicit API key
-        print(f"Creating OpenAI client with API key starting with: {self.api_key[:20]}...")
-        self.client = OpenAI(api_key=self.api_key)
-        print("OpenAI client created.")
+        global _openai_client, _embeddings_service
+        if _openai_client is None:
+            _openai_client = OpenAI(api_key=self.api_key)
         
-        # Print client base URL to verify configuration
-        print(f"OpenAI client base URL: {self.client.base_url}")
+        self.client = _openai_client
         
-        self.embeddings_service = EmbeddingsService()
+        # Import here to avoid circular imports
+        if _embeddings_service is None:
+            from .embeddings_service import EmbeddingsService
+            _embeddings_service = EmbeddingsService()
+        
+        self.embeddings_service = _embeddings_service
         self.model = "gpt-3.5-turbo"
     
     def generate_response(self, messages: List[Dict[str, str]], 
@@ -65,7 +45,11 @@ class OpenAIService:
             # If the query is not empty, augment the system message with document context
             if query:
                 # Get relevant context from documents
+                start_time = time.time()
                 context = self.embeddings_service.get_relevant_context(query)
+                context_time = time.time() - start_time
+                if context_time > 1.0:  # Only log if slow
+                    print(f"Context retrieval took {context_time:.2f}s")
                 
                 # If context exists, add it to the system message
                 if context:
@@ -88,12 +72,16 @@ class OpenAIService:
                         messages_copy.insert(0, system_message)
             
             # Call OpenAI API
+            start_time = time.time()
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=messages_copy,
                 temperature=temperature,
                 max_tokens=max_tokens
             )
+            api_time = time.time() - start_time
+            if api_time > 2.0:  # Only log if slow
+                print(f"OpenAI API call took {api_time:.2f}s")
             
             # Extract and return the response content
             return response.choices[0].message.content.strip()
@@ -101,12 +89,17 @@ class OpenAIService:
         except Exception as e:
             # Handle errors
             error_message = f"Error generating response: {str(e)}"
+            print(f"OpenAI error: {error_message}")
             return error_message
     
     def is_answer_in_documents(self, query: str) -> bool:
         """Check if the answer to a query can be found in the documents"""
         # Get relevant context
+        start_time = time.time()
         context = self.embeddings_service.get_relevant_context(query, max_chunks=2)
+        context_time = time.time() - start_time
+        if context_time > 1.0:  # Only log if slow
+            print(f"Context retrieval for document check took {context_time:.2f}s")
         
         # If no context, answer is not in documents
         if not context:
@@ -129,12 +122,16 @@ class OpenAIService:
             }
         ]
         
+        start_time = time.time()
         response = self.client.chat.completions.create(
             model=self.model,
             messages=messages,
             temperature=0.0,  # Use low temperature for more deterministic response
             max_tokens=5
         )
+        api_time = time.time() - start_time
+        if api_time > 1.0:  # Only log if slow
+            print(f"Document check API call took {api_time:.2f}s")
         
         answer = response.choices[0].message.content.strip().upper()
         return "YES" in answer 

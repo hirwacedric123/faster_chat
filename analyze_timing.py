@@ -19,19 +19,19 @@ def parse_timing_data(log_file):
         content = f.read()
     
     # Extract request timing
-    request_pattern = r'🕒 TIMING SUMMARY: Total: (\d+\.\d+)s \| RAG: (\d+\.\d+)s \| Used documents: (\w+)'
+    request_pattern = r'\[TIMER\] SUMMARY: Total: (\d+\.\d+)s \| RAG: (\d+\.\d+)s \| Used documents: (\w+)'
     request_matches = re.findall(request_pattern, content)
     
     # Extract RAG timing
-    rag_pattern = r'⌛ TIMING SUMMARY: Total: (\d+\.\d+)s \| Doc Check: (\d+\.\d+)s \| Generation: (\d+\.\d+)s \| Used docs: (\w+)'
+    rag_pattern = r'\[RAG\] SUMMARY: Total: (\d+\.\d+)s \| Doc Check: (\d+\.\d+)s \| Generation: (\d+\.\d+)s \| Used docs: (\w+)'
     rag_matches = re.findall(rag_pattern, content)
     
     # Extract embedding timing
-    embed_pattern = r'⚡ \[\d+:\d+:\d+\.\d+\] - Created embedding in (\d+\.\d+)s'
+    embed_pattern = r'\[EMBED\] \[\d+:\d+:\d+\.\d+\] - Created embedding in (\d+\.\d+)s'
     embed_matches = re.findall(embed_pattern, content)
     
     # Extract Pinecone query timing
-    pinecone_pattern = r'⚡ \[\d+:\d+:\d+\.\d+\] - Pinecone query completed in (\d+\.\d+)s'
+    pinecone_pattern = r'\[EMBED\] \[\d+:\d+:\d+\.\d+\] - Pinecone query completed in (\d+\.\d+)s'
     pinecone_matches = re.findall(pinecone_pattern, content)
     
     # Extract OpenAI API call timing
