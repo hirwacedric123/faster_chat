@@ -1,0 +1,247 @@
+{% extends 'base.html' %}
+
+{% block title %}Chat - Faster Chat{% endblock %}
+
+{% block content %}
+<div class="row">
+    <!-- Sidebar for conversations -->
+    <div class="col-md-3">
+        <div class="card mb-3">
+            <div class="card-header bg-white">
+                <div class="d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">Conversations</h5>
+                    <button class="btn btn-sm btn-primary" id="new-conversation">
+                        <i class="fas fa-plus"></i> New
+                    </button>
+                </div>
+            </div>
+            <div class="list-group list-group-flush conversation-list">
+                {% for conversation in conversations %}
+                <a href="#" class="list-group-item list-group-item-action {% if conversation.id == active_conversation.id %}active{% endif %}" data-conversation-id="{{ conversation.id }}">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div class="text-truncate">{{ conversation.title }}</div>
+                        <small class="text-muted">{{ conversation.created_at|date:"M d" }}</small>
+                    </div>
+                </a>
+                {% empty %}
+                <div class="list-group-item text-center text-muted">No conversations yet</div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    
+    <!-- Main chat area -->
+    <div class="col-md-9">
+        <div class="card chat-container">
+            <div class="card-header bg-white">
+                <h5 class="mb-0">{{ active_conversation.title }}</h5>
+            </div>
+            
+            <div class="chat-messages" id="chat-messages">
+                {% for message in messages %}
+                <div class="message {% if message.role == 'user' %}message-user{% else %}message-assistant{% endif %} mb-3">
+                    <div class="message-header">
+                        <strong>{{ message.role|title }}</strong>
+                        <small class="text-muted">{{ message.timestamp|time:"H:i" }}</small>
+                    </div>
+                    <div class="message-content p-3 {% if message.role == 'user' %}bg-primary text-white{% else %}bg-light{% endif %} rounded">
+                        {{ message.content|linebreaks }}
+                    </div>
+                </div>
+                {% empty %}
+                <div class="text-center my-5">
+                    <div class="mb-3">
+                        <i class="fas fa-robot fa-4x text-muted"></i>
+                    </div>
+                    <h4>Start a new conversation</h4>
+                    <p class="text-muted">Ask me anything or upload documents to get more specific answers.</p>
+                </div>
+                {% endfor %}
+            </div>
+            
+            <div class="chat-input">
+                <form id="chat-form">
+                    {% csrf_token %}
+                    <input type="hidden" id="conversation-id" value="{{ active_conversation.id }}">
+                    <div class="input-group">
+                        <textarea class="form-control" id="user-message" placeholder="Type your message here..." rows="1" required></textarea>
+                        <button class="btn btn-primary" type="submit">
+                            <i class="fas fa-paper-plane"></i>
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+    .message {
+        max-width: 85%;
+    }
+    
+    .message-user {
+        margin-left: auto;
+    }
+    
+    .message-assistant {
+        margin-right: auto;
+    }
+    
+    .message-header {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 0.25rem;
+        font-size: 0.85rem;
+    }
+    
+    .message-content {
+        border-radius: 1rem !important;
+    }
+    
+    .message-content p:last-child {
+        margin-bottom: 0;
+    }
+    
+    .conversation-list {
+        max-height: calc(100vh - 250px);
+        overflow-y: auto;
+    }
+    
+    /* Auto-resize textarea */
+    textarea {
+        resize: none;
+        overflow: hidden;
+    }
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    $(document).ready(function() {
+        // Scroll to bottom of chat
+        function scrollToBottom() {
+            const chatMessages = document.getElementById('chat-messages');
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+        
+        scrollToBottom();
+        
+        // Auto-resize textarea
+        $('#user-message').on('input', function() {
+            this.style.height = 'auto';
+            this.style.height = (this.scrollHeight) + 'px';
+        });
+        
+        // Submit message
+        $('#chat-form').on('submit', function(e) {
+            e.preventDefault();
+            
+            const userMessage = $('#user-message').val().trim();
+            const conversationId = $('#conversation-id').val();
+            
+            if (!userMessage) return;
+            
+            // Clear input
+            $('#user-message').val('').css('height', 'auto');
+            
+            // Add user message to chat (optimistic UI update)
+            const userMessageHtml = `
+                <div class="message message-user mb-3">
+                    <div class="message-header">
+                        <strong>User</strong>
+                        <small class="text-muted">${new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</small>
+                    </div>
+                    <div class="message-content p-3 bg-primary text-white rounded">
+                        ${userMessage.replace(/\n/g, '<br>')}
+                    </div>
+                </div>
+            `;
+            
+            $('#chat-messages').append(userMessageHtml);
+            scrollToBottom();
+            
+            // Show loading indicator
+            const loadingHtml = `
+                <div class="message message-assistant mb-3" id="loading-message">
+                    <div class="message-header">
+                        <strong>Assistant</strong>
+                        <small class="text-muted">${new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</small>
+                    </div>
+                    <div class="message-content p-3 bg-light rounded">
+                        <div class="spinner-border spinner-border-sm text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <span class="ms-2">Thinking...</span>
+                    </div>
+                </div>
+            `;
+            
+            $('#chat-messages').append(loadingHtml);
+            scrollToBottom();
+            
+            // Send request to server
+            $.ajax({
+                url: '{% url "chat:ask_question" %}',
+                type: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({
+                    question: userMessage,
+                    conversation_id: conversationId
+                }),
+                headers: {
+                    'X-CSRFToken': $('input[name="csrfmiddlewaretoken"]').val()
+                },
+                success: function(response) {
+                    // Remove loading indicator
+                    $('#loading-message').remove();
+                    
+                    // Add assistant message to chat
+                    const assistantMessageHtml = `
+                        <div class="message message-assistant mb-3">
+                            <div class="message-header">
+                                <strong>Assistant</strong>
+                                <small class="text-muted">${new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</small>
+                            </div>
+                            <div class="message-content p-3 bg-light rounded">
+                                ${response.response.replace(/\n/g, '<br>')}
+                            </div>
+                        </div>
+                    `;
+                    
+                    $('#chat-messages').append(assistantMessageHtml);
+                    scrollToBottom();
+                },
+                error: function(error) {
+                    // Remove loading indicator
+                    $('#loading-message').remove();
+                    
+                    // Show error message
+                    const errorMessage = error.responseJSON?.error || 'Something went wrong. Please try again.';
+                    const errorMessageHtml = `
+                        <div class="message message-assistant mb-3">
+                            <div class="message-header">
+                                <strong>System</strong>
+                                <small class="text-muted">${new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</small>
+                            </div>
+                            <div class="message-content p-3 bg-danger text-white rounded">
+                                <i class="fas fa-exclamation-triangle me-2"></i> ${errorMessage}
+                            </div>
+                        </div>
+                    `;
+                    
+                    $('#chat-messages').append(errorMessageHtml);
+                    scrollToBottom();
+                }
+            });
+        });
+        
+        // Create new conversation
+        $('#new-conversation').on('click', function() {
+            window.location.href = '{% url "chat:home" %}?new=1';
+        });
+    });
+</script>
+{% endblock %} 
