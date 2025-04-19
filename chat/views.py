@@ -5,12 +5,14 @@ from django.views.decorators.http import require_POST
 from django.views.decorators.csrf import csrf_exempt
 import json
 import time
-import datetime
 
 from .models import Conversation, Message
 from .forms import MessageForm, ConversationForm
 from .rag_service import RAGService
 from documents.models import Document, DocumentChunk
+
+# Global service cache
+_rag_service = None
 
 def chat_home(request):
     """Home page for the chat interface"""
@@ -74,21 +76,16 @@ def ask_question(request):
     """API endpoint to ask a question and get a response"""
     # Record request start time
     request_start = time.time()
-    request_timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-    print(f"[TIMER] REQUEST START [{request_timestamp}] - New chat request received")
     
     try:
         data = json.loads(request.body)
         question = data.get('question', '').strip()
         conversation_id = data.get('conversation_id')
         
-        print(f"[TIMER] [{datetime.datetime.now().strftime('%H:%M:%S.%f')[:-3]}] - Processing question: '{question[:50]}{'...' if len(question) > 50 else ''}'")
-        
         if not question:
             return JsonResponse({'error': 'Question cannot be empty'}, status=400)
         
         # Get or create conversation
-        db_start = time.time()
         if conversation_id:
             conversation = get_object_or_404(Conversation, id=conversation_id)
         else:
@@ -101,16 +98,15 @@ def ask_question(request):
             role='user',
             content=question
         )
-        db_time = time.time() - db_start
-        print(f"[TIMER] [{datetime.datetime.now().strftime('%H:%M:%S.%f')[:-3]}] - Database operations took {db_time:.2f}s")
         
         # Use RAG service to generate response
-        print(f"[TIMER] [{datetime.datetime.now().strftime('%H:%M:%S.%f')[:-3]}] - Calling RAG service")
+        global _rag_service
+        if _rag_service is None:
+            _rag_service = RAGService()
+        
         rag_start = time.time()
-        rag_service = RAGService()
-        response_text, used_documents = rag_service.ask(conversation, question)
+        response_text, used_documents = _rag_service.ask(conversation, question)
         rag_time = time.time() - rag_start
-        print(f"[TIMER] [{datetime.datetime.now().strftime('%H:%M:%S.%f')[:-3]}] - RAG service completed in {rag_time:.2f}s")
         
         # Update conversation title if this is the first question
         message_count = Message.objects.filter(conversation=conversation).count()
@@ -122,20 +118,16 @@ def ask_question(request):
             conversation.save()
         
         # Save assistant message
-        db_start = time.time()
         assistant_message = Message.objects.create(
             conversation=conversation,
             role='assistant',
             content=response_text
         )
-        db_time = time.time() - db_start
-        print(f"[TIMER] [{datetime.datetime.now().strftime('%H:%M:%S.%f')[:-3]}] - Saving response took {db_time:.2f}s")
         
         # Calculate total request time
         request_time = time.time() - request_start
-        request_end = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-        print(f"[TIMER] REQUEST END [{request_end}] - Total request time: {request_time:.2f}s")
-        print(f"[TIMER] SUMMARY: Total: {request_time:.2f}s | RAG: {rag_time:.2f}s | Used documents: {used_documents}")
+        if request_time > 3.0:  # Only log if slow
+            print(f"Total request time: {request_time:.2f}s | RAG: {rag_time:.2f}s | Used documents: {used_documents}")
         
         return JsonResponse({
             'response': response_text,
@@ -151,4 +143,5 @@ def ask_question(request):
     except json.JSONDecodeError:
         return JsonResponse({'error': 'Invalid JSON data'}, status=400)
     except Exception as e:
+        print(f"Error processing question: {str(e)}")
         return JsonResponse({'error': str(e)}, status=500)

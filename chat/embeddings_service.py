@@ -27,13 +27,17 @@ class EmbeddingsService:
         global _openai_client, _vector_store, _documents
         
         # Get API keys from environment utils
-        self.api_key, self.embeddings_file, self.documents_file = load_environment()
+        self.api_key, self.pinecone_api_key, self.pinecone_environment, self.embeddings_file, self.documents_file = load_environment()
         
         # Create client with explicit API key if not already created
         if _openai_client is None:
             _openai_client = OpenAI(api_key=self.api_key)
         
         self.client = _openai_client
+        
+        # Set embedding model and dimensions
+        self.embedding_model = "text-embedding-3-small"
+        self.embedding_dimensions = 1536  # text-embedding-3-small has 1536 dimensions
         
         # Load vector store if not already loaded
         if _vector_store is None:
@@ -46,9 +50,6 @@ class EmbeddingsService:
             self._load_documents()
         else:
             self.documents = _documents
-        
-        # Get API keys from environment utils
-        self.pinecone_api_key, self.pinecone_environment = load_environment()
         
         # Initialize Pinecone with new API
         global _pinecone_client
@@ -170,7 +171,7 @@ class EmbeddingsService:
             # Get embedding from OpenAI
             response = self.client.embeddings.create(
                 input=text,
-                model="text-embedding-ada-002"
+                model=self.embedding_model
             )
             
             # Convert to numpy array
@@ -187,14 +188,14 @@ class EmbeddingsService:
         except Exception as e:
             print(f"Error getting embedding: {str(e)}")
             # Return a zero vector as fallback
-            return np.zeros(1536)
+            return np.zeros(self.embedding_dimensions)
     
     def create_embedding(self, text: str) -> List[float]:
         """Create an embedding vector for a text using OpenAI"""
         start_time = time.time()
         response = self.client.embeddings.create(
             input=text,
-            model="text-embedding-3-small"
+            model=self.embedding_model
         )
         embedding_time = time.time() - start_time
         if embedding_time > 0.5:  # Only log if slow

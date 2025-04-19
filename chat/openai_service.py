@@ -15,7 +15,7 @@ class OpenAIService:
     
     def __init__(self):
         # Get API keys from environment utils
-        self.api_key, _, _ = load_environment()
+        self.api_key, _, _, _, _ = load_environment()
         
         # Create client with explicit API key
         global _openai_client, _embeddings_service
