@@ -1,0 +1,82 @@
+{% extends 'base.html' %}
+
+{% block title %}Upload Document - Faster Chat{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header bg-white">
+                <h4 class="mb-0">Upload New Document</h4>
+            </div>
+            <div class="card-body">
+                <form method="post" enctype="multipart/form-data">
+                    {% csrf_token %}
+                    
+                    <div class="mb-3">
+                        <label for="{{ form.title.id_for_label }}" class="form-label">Document Title</label>
+                        {{ form.title|add_class:"form-control" }}
+                        {% if form.title.errors %}
+                            <div class="text-danger mt-1">
+                                {{ form.title.errors }}
+                            </div>
+                        {% endif %}
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="{{ form.description.id_for_label }}" class="form-label">Description (Optional)</label>
+                        {{ form.description|add_class:"form-control" }}
+                        {% if form.description.errors %}
+                            <div class="text-danger mt-1">
+                                {{ form.description.errors }}
+                            </div>
+                        {% endif %}
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="{{ form.file.id_for_label }}" class="form-label">File</label>
+                        {{ form.file|add_class:"form-control" }}
+                        {% if form.file.errors %}
+                            <div class="text-danger mt-1">
+                                {{ form.file.errors }}
+                            </div>
+                        {% endif %}
+                        <div class="form-text">
+                            Supported file types: PDF, DOC, DOCX, TXT, MD (Max 10MB)
+                        </div>
+                    </div>
+                    
+                    <div class="d-flex justify-content-between">
+                        <a href="{% url 'documents:list' %}" class="btn btn-outline-secondary">
+                            <i class="fas fa-arrow-left me-2"></i> Back to Documents
+                        </a>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-upload me-2"></i> Upload Document
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row justify-content-center mt-4">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header bg-white">
+                <h5 class="mb-0">About Document Processing</h5>
+            </div>
+            <div class="card-body">
+                <p>When you upload a document, our system:</p>
+                <ol>
+                    <li>Extracts text from your document</li>
+                    <li>Splits the content into smaller chunks</li>
+                    <li>Creates vector embeddings for each chunk to enable semantic search</li>
+                    <li>Stores the embeddings in our database</li>
+                </ol>
+                <p>Once processing is complete, the AI assistant will use your documents to provide more accurate and relevant answers to your questions.</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %} 
