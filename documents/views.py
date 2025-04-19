@@ -3,7 +3,7 @@ from django.http import JsonResponse
 from django.contrib import messages
 from django.conf import settings
 from django.utils import timezone
-from django.db import transaction
+from django.db import transaction, OperationalError
 
 from .models import Document, DocumentChunk
 from .forms import DocumentUploadForm
@@ -34,44 +34,64 @@ def document_list(request):
 
 def upload_document(request):
     """Handle document upload and processing"""
+    import time
+    
     if request.method == 'POST':
         form = DocumentUploadForm(request.POST, request.FILES)
         if form.is_valid():
-            with transaction.atomic():
-                # Save document with pending status
-                document = form.save(commit=False)
-                document.status = 'processing'
-                document.save()
-                
+            max_retries = 3
+            retry_delay = 1.0  # seconds
+            
+            for attempt in range(max_retries):
                 try:
-                    # Process document (extract text and create chunks)
-                    processor = DocumentProcessor(document)
-                    success = processor.process()
-                    
-                    if success:
-                        # Create embeddings for each chunk
-                        embeddings_service = EmbeddingsService()
-                        chunks = DocumentChunk.objects.filter(document=document)
-                        
-                        for chunk in chunks:
-                            embeddings_service.store_document_chunk(chunk)
-                        
-                        # Mark document as completed
-                        document.status = 'completed'
-                        document.processed_at = timezone.now()
+                    with transaction.atomic():
+                        # Save document with pending status
+                        document = form.save(commit=False)
+                        document.status = 'processing'
                         document.save()
                         
-                        messages.success(request, f"Document '{document.title}' uploaded and processed successfully!")
+                        try:
+                            # Process document (extract text and create chunks)
+                            processor = DocumentProcessor(document)
+                            success = processor.process()
+                            
+                            if success:
+                                # Create embeddings for each chunk
+                                embeddings_service = EmbeddingsService()
+                                chunks = DocumentChunk.objects.filter(document=document)
+                                
+                                for chunk in chunks:
+                                    embeddings_service.store_document_chunk(chunk)
+                                
+                                # Mark document as completed
+                                document.status = 'completed'
+                                document.processed_at = timezone.now()
+                                document.save()
+                                
+                                messages.success(request, f"Document '{document.title}' uploaded and processed successfully!")
+                            else:
+                                # If process() returned False but didn't raise an exception
+                                messages.error(request, f"Error processing document: {document.error_message or 'Unknown error'}")
+                        
+                        except Exception as e:
+                            # Log the error and mark document as failed
+                            document.status = 'failed'
+                            document.error_message = str(e)
+                            document.save()
+                            messages.error(request, f"Error processing document: {str(e)}")
+                    
+                    # If we got here, transaction committed successfully
+                    break
+                    
+                except OperationalError as e:
+                    if "database is locked" in str(e) and attempt < max_retries - 1:
+                        # Wait and retry
+                        time.sleep(retry_delay)
+                        messages.warning(request, f"Database busy, retrying... (Attempt {attempt+1}/{max_retries})")
+                        continue
                     else:
-                        # If process() returned False but didn't raise an exception
-                        messages.error(request, f"Error processing document: {document.error_message or 'Unknown error'}")
-                
-                except Exception as e:
-                    # Log the error and mark document as failed
-                    document.status = 'failed'
-                    document.error_message = str(e)
-                    document.save()
-                    messages.error(request, f"Error processing document: {str(e)}")
+                        # Last attempt failed or different error
+                        messages.error(request, f"Database error: {str(e)}")
             
             return redirect('documents:list')
         else:

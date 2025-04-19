@@ -5,6 +5,7 @@ from django.conf import settings
 import pypdf
 from docx import Document as DocxDocument
 from langchain.text_splitter import RecursiveCharacterTextSplitter
+from django.db import transaction
 
 from .models import Document, DocumentChunk
 
@@ -25,13 +26,26 @@ class DocumentProcessor:
             # Split text into chunks
             chunks = self.split_into_chunks(text)
             
-            # Save chunks to database
-            for i, chunk_text in enumerate(chunks):
-                DocumentChunk.objects.create(
-                    document=self.document,
-                    content=chunk_text,
-                    chunk_number=i
-                )
+            # Save chunks to database in batches to reduce lock contention
+            
+            # Use batches of 10 chunks at a time
+            batch_size = 10
+            for i in range(0, len(chunks), batch_size):
+                batch_chunks = []
+                batch = chunks[i:i+batch_size]
+                
+                # Create chunk objects without saving
+                for j, chunk_text in enumerate(batch):
+                    chunk_number = i + j
+                    batch_chunks.append(DocumentChunk(
+                        document=self.document,
+                        content=chunk_text,
+                        chunk_number=chunk_number
+                    ))
+                
+                # Save batch in a single transaction
+                with transaction.atomic():
+                    DocumentChunk.objects.bulk_create(batch_chunks)
             
             return True
         except Exception as e:

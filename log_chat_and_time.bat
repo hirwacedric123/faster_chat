@@ -1,0 +1,9 @@
+@echo off
+echo Clearing system-wide OPENAI_API_KEY environment variable...
+set "OPENAI_API_KEY="
+echo Starting Django server with timing logs enabled...
+echo Logs will be saved to chat_timing_logs.txt
+python manage.py runserver > chat_timing_logs.txt
+
+echo Server stopped. Analyzing timing data...
+python analyze_timing.py chat_timing_logs.txt 

@@ -7,62 +7,50 @@ import dotenv
 from pathlib import Path
 
 # Load environment variables directly
-dotenv_path = Path(__file__).resolve().parent.parent / '.env'
+dotenv_path = Path(__file__).resolve().parent.parent.parent / '.env'
 print(f"Loading .env file from: {dotenv_path} (exists: {dotenv_path.exists()})")
-dotenv.load_dotenv(dotenv_path)
+dotenv.load_dotenv(dotenv_path, override=True)  # Force override existing env vars
+
+# Print the system OpenAI API key for debugging
+system_api_key = os.environ.get('OPENAI_API_KEY', 'Not set')
+print(f"System OPENAI_API_KEY: {system_api_key[:20]}... (length: {len(system_api_key) if system_api_key else 0})")
+
+# Now reload from .env and override the system variable
+if dotenv_path.exists():
+    # Load the .env file content directly
+    with open(dotenv_path, 'r') as f:
+        for line in f:
+            if line.strip() and not line.startswith('#'):
+                key, value = line.strip().split('=', 1)
+                if key == 'OPENAI_API_KEY':
+                    print(f"Explicitly setting OPENAI_API_KEY from .env file to: {value[:20]}...")
+                    os.environ['OPENAI_API_KEY'] = value
 
 class OpenAIService:
     """Service for interacting with OpenAI API"""
     
     def __init__(self):
-        # Check what's in environment variables
-        print("DEBUG - Environment variables:")
+        # Check what's in environment variables after our override
+        print("DEBUG - Environment variables after override:")
         print(f"OPENAI_API_KEY in os.environ: {'OPENAI_API_KEY' in os.environ}")
-        print(f"OPENAI_API_KEY from os.getenv: {os.getenv('OPENAI_API_KEY')[:5] if os.getenv('OPENAI_API_KEY') else 'None'}")
+        print(f"OPENAI_API_KEY from os.environ: {os.environ.get('OPENAI_API_KEY')[:20]}...")
         
-        # Try to get API key in multiple ways
-        self.api_key = os.getenv("OPENAI_API_KEY")
-        
-        # Use fallback to Django settings if needed
-        if not self.api_key or not self.api_key.startswith('sk-'):
-            print("Warning: Invalid key from os.getenv, trying Django settings")
-            self.api_key = settings.OPENAI_API_KEY
+        # Get API key directly from .env file
+        self.api_key = os.environ.get("OPENAI_API_KEY")
         
         # Debug logging
         print(f"OpenAIService - Final API key format: {self.api_key[:20]}... (length: {len(self.api_key) if self.api_key else 0})")
         
-        # Validate API key format - allow both sk- and sk-proj- formats
-        if not self.api_key or not (self.api_key.startswith('sk-') or self.api_key.startswith('sk-proj-')):
-            raise ValueError("OpenAI API key must start with 'sk-' or 'sk-proj-'. Check your API key format.")
-        
-        # Force the client to use our explicit API key by temporarily removing environment variable
-        existing_key = os.environ.pop('OPENAI_API_KEY', None)
-        try:    
-            # Create client with explicit API key
-            print(f"Creating OpenAI client with API key starting with: {self.api_key[:20]}...")
-            
-            # Different initialization based on key type
-            if self.api_key.startswith('sk-proj-'):
-                # Special handling for project keys
-                self.client = OpenAI(
-                    api_key=self.api_key,
-                    base_url="https://api.openai.com/v1"  # Ensure we're using the correct API base
-                )
-            else:
-                # Standard initialization
-                self.client = OpenAI(api_key=self.api_key)
-                
-            print("OpenAI client created.")
-        finally:
-            # Restore environment variable if it existed
-            if existing_key:
-                os.environ['OPENAI_API_KEY'] = existing_key
+        # Create client with explicit API key
+        print(f"Creating OpenAI client with API key starting with: {self.api_key[:20]}...")
+        self.client = OpenAI(api_key=self.api_key)
+        print("OpenAI client created.")
         
         # Print client base URL to verify configuration
         print(f"OpenAI client base URL: {self.client.base_url}")
         
         self.embeddings_service = EmbeddingsService()
-        self.model = "gpt-4o"
+        self.model = "gpt-3.5-turbo"
     
     def generate_response(self, messages: List[Dict[str, str]], 
                           query: str = "", temperature: float = 0.7, 

@@ -15,8 +15,31 @@ import os
 import environ
 import dotenv
 
-# Initialize dotenv
-dotenv.load_dotenv()
+# Print the existing OpenAI API key
+system_api_key = os.environ.get('OPENAI_API_KEY', 'Not set')
+print(f"Settings - System OPENAI_API_KEY begins with: {system_api_key[:20] if system_api_key else 'None'}")
+
+# Initialize dotenv with override
+dotenv_path = Path(__file__).resolve().parent.parent / '.env'
+print(f"Settings - Loading .env from: {dotenv_path} (exists: {dotenv_path.exists()})")
+dotenv.load_dotenv(dotenv_path, override=True)
+
+# Load .env file directly to ensure it overrides system variables
+if dotenv_path.exists():
+    with open(dotenv_path, 'r') as f:
+        for line in f:
+            if line.strip() and not line.startswith('#'):
+                try:
+                    key, value = line.strip().split('=', 1)
+                    if key == 'OPENAI_API_KEY':
+                        os.environ[key] = value
+                        print(f"Settings - Overrode {key} with value from .env")
+                except ValueError:
+                    pass
+
+# Print the updated OpenAI API key
+updated_api_key = os.environ.get('OPENAI_API_KEY', 'Not set')
+print(f"Settings - Updated OPENAI_API_KEY begins with: {updated_api_key[:20] if updated_api_key else 'None'}")
 
 # Initialize environment variables
 env = environ.Env()
@@ -97,6 +120,11 @@ DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.sqlite3",
         "NAME": BASE_DIR / "db.sqlite3",
+        "OPTIONS": {
+            # Add timeout to prevent database locked errors
+            "timeout": 20,  # seconds
+        },
+        "ATOMIC_REQUESTS": False,  # Disable atomic requests to reduce lock time
     }
 }
 
@@ -148,6 +176,6 @@ MEDIA_ROOT = env("MEDIA_ROOT", default=os.path.join(BASE_DIR, "media"))
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # API Keys - Get directly from os.environ
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-PINECONE_API_KEY = os.getenv("PINECONE_API_KEY", "")
-PINECONE_ENVIRONMENT = os.getenv("PINECONE_ENVIRONMENT", "")
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+PINECONE_API_KEY = os.environ.get("PINECONE_API_KEY", "")
+PINECONE_ENVIRONMENT = os.environ.get("PINECONE_ENVIRONMENT", "")

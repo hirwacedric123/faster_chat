@@ -9,67 +9,29 @@ from documents.models import DocumentChunk
 import dotenv
 from pathlib import Path
 
-# Load environment variables directly
-dotenv_path = Path(__file__).resolve().parent.parent / '.env'
-print(f"EmbeddingsService - Loading .env from: {dotenv_path} (exists: {dotenv_path.exists()})")
-dotenv.load_dotenv(dotenv_path)
+# No need to load .env here since openai_service.py already does it
+# Just print debug info
+print(f"EmbeddingsService - Using OPENAI_API_KEY from environment: {os.environ.get('OPENAI_API_KEY')[:20]}...")
 
 class EmbeddingsService:
     """Service for handling text embeddings using OpenAI and Pinecone"""
     
     def __init__(self):
-        # Get API keys directly from environment with explicit logging
-        print("EmbeddingsService - Checking environment variables:")
-        print(f"OPENAI_API_KEY in os.environ: {'OPENAI_API_KEY' in os.environ}")
-        
-        # Try to get the API key with proper error handling
-        try:
-            self.openai_api_key = os.getenv("OPENAI_API_KEY")
-            print(f"API key retrieved from os.getenv: {bool(self.openai_api_key)}")
-            if self.openai_api_key and len(self.openai_api_key) > 20:
-                print(f"API key starts with: {self.openai_api_key[:20]}")
-            else:
-                print("API key is missing or too short")
-        except Exception as e:
-            print(f"Error accessing API key: {str(e)}")
-            self.openai_api_key = ""
-        
-        self.pinecone_api_key = os.getenv("PINECONE_API_KEY")
-        self.pinecone_environment = os.getenv("PINECONE_ENVIRONMENT")
+        # Get API keys directly from environment
+        self.openai_api_key = os.environ.get("OPENAI_API_KEY")
+        self.pinecone_api_key = os.environ.get("PINECONE_API_KEY")
+        self.pinecone_environment = os.environ.get("PINECONE_ENVIRONMENT")
         
         # Debug logging - will show in console during development
         print(f"Initializing EmbeddingsService with:")
         print(f"Embedding model: text-embedding-3-small")
         print(f"Pinecone environment: {self.pinecone_environment}")
         print(f"Pinecone API key present: {bool(self.pinecone_api_key)}")
+        print(f"OpenAI API key: {self.openai_api_key[:20]}...")
         
-        # Explicit API key validation
-        if not self.openai_api_key or not (self.openai_api_key.startswith('sk-') or self.openai_api_key.startswith('sk-proj-')):
-            print("Warning: Invalid OpenAI API key format in embeddings service")
-            raise ValueError("OpenAI API key must start with 'sk-' or 'sk-proj-'. Check your API key format.")
-        
-        # Force the client to use our explicit API key by temporarily removing environment variable
-        existing_key = os.environ.pop('OPENAI_API_KEY', None)
-        try:
-            # Initialize OpenAI client with explicit API key parameter
-            print(f"Creating OpenAI client with API key: {self.openai_api_key[:20]}...")
-            
-            # Different initialization based on key type
-            if self.openai_api_key.startswith('sk-proj-'):
-                # Special handling for project keys
-                self.openai_client = OpenAI(
-                    api_key=self.openai_api_key,
-                    base_url="https://api.openai.com/v1"  # Ensure we're using the correct API base
-                )
-            else:
-                # Standard initialization
-                self.openai_client = OpenAI(api_key=self.openai_api_key)
-                
-            print("OpenAI client created in EmbeddingsService")
-        finally:
-            # Restore environment variable if it existed
-            if existing_key:
-                os.environ['OPENAI_API_KEY'] = existing_key
+        # Initialize OpenAI client with explicit API key parameter
+        self.openai_client = OpenAI(api_key=self.openai_api_key)
+        print("OpenAI client created in EmbeddingsService")
         
         self.embedding_model = "text-embedding-3-small"  # Changed from 3-large to 3-small
         self.embedding_dimensions = 1536  # text-embedding-3-small has 1536 dimensions
@@ -154,18 +116,31 @@ class EmbeddingsService:
     
     def similarity_search(self, query: str, top_k: int = 3) -> List[Tuple[DocumentChunk, float]]:
         """Search for similar document chunks based on query"""
+        import time
+        import datetime
+        
+        search_start = time.time()
+        print(f"⚡ [{datetime.datetime.now().strftime('%H:%M:%S.%f')[:-3]}] - Starting similarity search for query")
+        
         # Create embedding for the query
+        embed_start = time.time()
         query_embedding = self.create_embedding(query)
+        embed_time = time.time() - embed_start
+        print(f"⚡ [{datetime.datetime.now().strftime('%H:%M:%S.%f')[:-3]}] - Created embedding in {embed_time:.2f}s")
         
         # Search in Pinecone
+        pinecone_start = time.time()
         index = self.get_index()
         results = index.query(
             vector=query_embedding,
             top_k=top_k,
             include_metadata=True
         )
+        pinecone_time = time.time() - pinecone_start
+        print(f"⚡ [{datetime.datetime.now().strftime('%H:%M:%S.%f')[:-3]}] - Pinecone query completed in {pinecone_time:.2f}s, returned {len(results.matches)} matches")
         
         # Get document chunks
+        db_start = time.time()
         chunks_with_scores = []
         for match in results.matches:
             try:
@@ -180,6 +155,11 @@ class EmbeddingsService:
                 chunks_with_scores.append((chunk, match.score))
             except (DocumentChunk.DoesNotExist, KeyError, ValueError) as e:
                 continue
+        db_time = time.time() - db_start
+        
+        search_time = time.time() - search_start
+        print(f"⚡ [{datetime.datetime.now().strftime('%H:%M:%S.%f')[:-3]}] - Similarity search completed in {search_time:.2f}s - Embedding: {embed_time:.2f}s, Pinecone: {pinecone_time:.2f}s, DB: {db_time:.2f}s")
+        print(f"⚡ Retrieved {len(chunks_with_scores)} chunks with scores")
         
         return chunks_with_scores
     
@@ -198,18 +178,34 @@ class EmbeddingsService:
     
     def get_relevant_context(self, query: str, max_chunks: int = 3) -> str:
         """Get the most relevant context from documents for a query"""
+        import time
+        import datetime
+        
+        context_start = time.time()
+        print(f"⚡ [{datetime.datetime.now().strftime('%H:%M:%S.%f')[:-3]}] - Getting relevant context for: '{query[:50]}{'...' if len(query) > 50 else ''}'")
+        
+        # Get similar chunks
         chunks_with_scores = self.similarity_search(query, top_k=max_chunks)
         
         if not chunks_with_scores:
+            print(f"⚡ [{datetime.datetime.now().strftime('%H:%M:%S.%f')[:-3]}] - No relevant chunks found")
             return ""
         
         # Sort by score (highest first) and extract content
         chunks_with_scores.sort(key=lambda x: x[1], reverse=True)
         
         # Build context with document references
+        format_start = time.time()
         context_parts = []
         for chunk, score in chunks_with_scores:
             document_title = chunk.document.title
             context_parts.append(f"--- From document: {document_title} ---\n{chunk.content}\n")
         
-        return "\n".join(context_parts) 
+        context = "\n".join(context_parts)
+        format_time = time.time() - format_start
+        
+        total_time = time.time() - context_start
+        print(f"⚡ [{datetime.datetime.now().strftime('%H:%M:%S.%f')[:-3]}] - Context retrieval completed in {total_time:.2f}s - Formatting: {format_time:.2f}s")
+        print(f"⚡ Retrieved context length: {len(context)} characters from {len(chunks_with_scores)} chunks")
+        
+        return context 
