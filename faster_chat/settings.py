@@ -16,7 +16,14 @@ import environ
 
 # Initialize environment variables
 env = environ.Env()
-environ.Env.read_env()
+# Define path to .env file - explicitly specify the path
+env_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '.env')
+# Check if .env file exists and read it
+if os.path.exists(env_file):
+    environ.Env.read_env(env_file)
+    print(f"Loaded environment from: {env_file}")
+else:
+    print(f"Warning: .env file not found at {env_file}")
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
