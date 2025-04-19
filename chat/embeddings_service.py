@@ -13,8 +13,8 @@ class EmbeddingsService:
     def __init__(self):
         self.openai_client = OpenAI(api_key=settings.OPENAI_API_KEY)
         
-        # Initialize Pinecone
-        pinecone.init(
+        # Initialize Pinecone with new API
+        self.pinecone = pinecone.Pinecone(
             api_key=settings.PINECONE_API_KEY,
             environment=settings.PINECONE_ENVIRONMENT
         )
@@ -27,9 +27,12 @@ class EmbeddingsService:
     
     def _ensure_index_exists(self) -> None:
         """Ensure the Pinecone index exists, create if it doesn't"""
-        if self.index_name not in pinecone.list_indexes():
+        # List indexes
+        indexes = [index.name for index in self.pinecone.list_indexes()]
+        
+        if self.index_name not in indexes:
             # Create a new index with 1536 dimensions (OpenAI ada-002 embedding size)
-            pinecone.create_index(
+            self.pinecone.create_index(
                 name=self.index_name,
                 dimension=1536,
                 metric="cosine"
@@ -39,7 +42,7 @@ class EmbeddingsService:
     
     def get_index(self):
         """Get the Pinecone index"""
-        return pinecone.Index(self.index_name)
+        return self.pinecone.Index(self.index_name)
     
     def create_embedding(self, text: str) -> List[float]:
         """Create an embedding vector for a text using OpenAI"""
@@ -60,16 +63,16 @@ class EmbeddingsService:
         # Store in Pinecone
         index = self.get_index()
         index.upsert(
-            vectors=[(
-                chunk_id,
-                embedding,
-                {
+            vectors=[{
+                'id': chunk_id,
+                'values': embedding,
+                'metadata': {
                     "document_id": str(chunk.document.id),
                     "chunk_number": chunk.chunk_number,
                     "document_title": chunk.document.title,
                     "document_type": chunk.document.file_type
                 }
-            )]
+            }]
         )
         
         # Update the chunk with embedding ID

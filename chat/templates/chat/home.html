@@ -217,7 +217,7 @@
             
             // Send request to server
             $.ajax({
-                url: '{% url "chat:ask_question" %}',
+                url: '{% url "chat_app:ask_question" %}',
                 type: 'POST',
                 contentType: 'application/json',
                 data: JSON.stringify({
@@ -278,14 +278,14 @@
         
         // Create new conversation
         $('#new-conversation').on('click', function() {
-            window.location.href = '{% url "chat:home" %}?new=1';
+            window.location.href = '{% url "chat_app:home" %}?new=1';
         });
         
         // Click on conversation in sidebar
         $('.conversation-list a').on('click', function(e) {
             e.preventDefault();
             const conversationId = $(this).data('conversation-id');
-            window.location.href = `{% url "chat:home" %}?conversation_id=${conversationId}`;
+            window.location.href = `{% url "chat_app:home" %}?conversation_id=${conversationId}`;
         });
     });
 </script>
